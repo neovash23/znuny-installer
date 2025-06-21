@@ -23,11 +23,23 @@ A comprehensive installation script for Znuny 6.5 (Open Source Ticketing System)
 
 ## Quick Start
 
-### Installation
+### One-Line Installation
+
+```bash
+# Install directly from GitHub
+curl -fsSL https://raw.githubusercontent.com/neovash23/znuny-installer/main/setup-znuny-debian.sh | sudo bash
+```
+
+Or using wget:
+```bash
+wget -qO- https://raw.githubusercontent.com/neovash23/znuny-installer/main/setup-znuny-debian.sh | sudo bash
+```
+
+### Manual Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/znuny-installer.git
+git clone https://github.com/neovash23/znuny-installer.git
 cd znuny-installer
 
 # Make the script executable
@@ -41,6 +53,11 @@ sudo ./setup-znuny-debian.sh
 
 ```bash
 # Remove Znuny (keeps PostgreSQL)
+curl -fsSL https://raw.githubusercontent.com/neovash23/znuny-installer/main/setup-znuny-debian.sh | sudo bash -s uninstall
+```
+
+Or if you have it locally:
+```bash
 sudo ./setup-znuny-debian.sh uninstall
 ```
 
