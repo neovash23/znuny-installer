@@ -1,0 +1,37 @@
+# Logs
+*.log
+/var/log/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-*
+
+# Downloaded archives
+*.tar.gz
+*.tar.bz2
+*.zip
+
+# Credentials (NEVER commit these!)
+*credentials*
+*password*
+*.key
+*.pem
+
+# Installation artifacts
+/opt/otrs/
+/opt/znuny-*/
