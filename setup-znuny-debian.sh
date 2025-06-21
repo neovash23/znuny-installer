@@ -987,11 +987,18 @@ main() {
     echo "  - All required Perl modules"
     echo "  - System dependencies"
     echo
-    read -p "Continue with installation? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_message INFO "Installation cancelled by user"
-        exit 0
+    
+    # Check if running interactively (not piped)
+    if [ -t 0 ]; then
+        read -p "Continue with installation? (y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_message INFO "Installation cancelled by user"
+            exit 0
+        fi
+    else
+        echo -e "${YELLOW}Running in non-interactive mode, proceeding with installation...${NC}"
+        sleep 2
     fi
     
     # Execute installation
@@ -1036,12 +1043,19 @@ cleanup() {
         
         # Offer to rollback
         echo
-        echo -e "${YELLOW}Installation failed. Would you like to:${NC}"
-        echo "  1) Keep partial installation"
-        echo "  2) Remove Znuny files (keep PostgreSQL)"
-        echo "  3) Remove everything (Znuny + PostgreSQL)"
-        read -p "Select option (1-3) [1]: " -n 1 -r rollback_option
-        echo
+        
+        # Check if running interactively
+        if [ -t 0 ]; then
+            echo -e "${YELLOW}Installation failed. Would you like to:${NC}"
+            echo "  1) Keep partial installation"
+            echo "  2) Remove Znuny files (keep PostgreSQL)"
+            echo "  3) Remove everything (Znuny + PostgreSQL)"
+            read -p "Select option (1-3) [1]: " -n 1 -r rollback_option
+            echo
+        else
+            echo -e "${YELLOW}Installation failed in non-interactive mode. Keeping partial installation.${NC}"
+            rollback_option="1"
+        fi
         
         case $rollback_option in
             2)
