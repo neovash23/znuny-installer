@@ -133,13 +133,9 @@ check_prerequisites() {
 
 # Function to generate secure password
 generate_password() {
-    local length=${1:-25}
+    local length=${1:-16}
     # Generate password with alphanumeric characters only
-    local password=""
-    while [[ ${#password} -lt $length ]]; do
-        password+=$(openssl rand -base64 48 | tr -d "=+/\n" | grep -o '[A-Za-z0-9]' | head -c $((length - ${#password})))
-    done
-    echo "$password"
+    openssl rand -base64 32 | tr -d "=+/" | cut -c1-$length
 }
 
 # Function to install PostgreSQL
@@ -178,6 +174,10 @@ setup_postgresql_db() {
         # Non-interactive mode: use defaults or generate password
         DB_USER="znuny"
         DB_PASSWORD=$(generate_password)
+        if [[ -z "$DB_PASSWORD" ]]; then
+            log_message ERROR "Failed to generate database password"
+            exit 1
+        fi
         echo -e "${BLUE}Database Setup (non-interactive)${NC}"
         echo "Using database user: ${DB_USER}"
         echo "Generated database password: ${DB_PASSWORD}"
