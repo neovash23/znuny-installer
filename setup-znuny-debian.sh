@@ -160,13 +160,28 @@ install_postgresql() {
 setup_postgresql_db() {
     log_message INFO "Setting up PostgreSQL database..."
     
-    # Prompt for database credentials
-    echo -e "\n${BLUE}Database Setup${NC}"
-    read -p "Enter database username (default: znuny): " input_db_user
-    DB_USER=${input_db_user:-znuny}
-    
-    read -p "Enter database password (default: znuny123): " input_db_pass
-    DB_PASSWORD=${input_db_pass:-znuny123}
+    # Check if running interactively
+    if [ -t 0 ]; then
+        # Prompt for database credentials
+        echo -e "\n${BLUE}Database Setup${NC}"
+        read -p "Enter database username (default: znuny): " input_db_user
+        DB_USER=${input_db_user:-znuny}
+        
+        read -p "Enter database password (leave blank to auto-generate): " input_db_pass
+        if [[ -z "$input_db_pass" ]]; then
+            DB_PASSWORD=$(generate_password)
+            echo -e "${GREEN}Generated password: ${DB_PASSWORD}${NC}"
+        else
+            DB_PASSWORD="$input_db_pass"
+        fi
+    else
+        # Non-interactive mode: use defaults or generate password
+        DB_USER="znuny"
+        DB_PASSWORD=$(generate_password)
+        echo -e "${BLUE}Database Setup (non-interactive)${NC}"
+        echo "Using database user: ${DB_USER}"
+        echo "Generated database password: ${DB_PASSWORD}"
+    fi
     
     # Create database and user
     log_message INFO "Creating database user: ${DB_USER}"
@@ -408,10 +423,23 @@ configure_znuny() {
         cp Kernel/Config.pm.dist Kernel/Config.pm
     fi
     
-    # Prompt for admin password
-    echo -e "\n${BLUE}Admin Account Setup${NC}"
-    read -p "Enter admin password (default: admin123): " input_admin_pass
-    ADMIN_PASSWORD=${input_admin_pass:-admin123}
+    # Set admin password
+    if [ -t 0 ]; then
+        # Interactive mode: prompt for password
+        echo -e "\n${BLUE}Admin Account Setup${NC}"
+        read -p "Enter admin password (leave blank to auto-generate): " input_admin_pass
+        if [[ -z "$input_admin_pass" ]]; then
+            ADMIN_PASSWORD=$(generate_password)
+            echo -e "${GREEN}Generated admin password: ${ADMIN_PASSWORD}${NC}"
+        else
+            ADMIN_PASSWORD="$input_admin_pass"
+        fi
+    else
+        # Non-interactive mode: generate password
+        ADMIN_PASSWORD=$(generate_password)
+        echo -e "${BLUE}Admin Account Setup (non-interactive)${NC}"
+        echo "Generated admin password: ${ADMIN_PASSWORD}"
+    fi
     
     # Export variables for use in other functions
     export DB_PASSWORD
