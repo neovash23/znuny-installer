@@ -1,13 +1,14 @@
 #!/bin/bash
 #
-# Znuny 6.5 Installation Script for Debian/Ubuntu
-# This script automates the installation of Znuny 6.5 with PostgreSQL
+# Znuny 6.5 Automated Installation Script for Debian/Ubuntu
+# This script automates the COMPLETE installation of Znuny 6.5 with PostgreSQL
+# No manual intervention required - perfect for testing environments
 # 
 # Author: System Administrator
-# Date: 2025-06-21
-# Version: 1.0
+# Date: 2025-06-22
+# Version: 2.0
 #
-# Usage: sudo bash setup-znuny-debian.sh
+# Usage: sudo bash setup-znuny-debian-auto.sh
 #
 
 set -euo pipefail
@@ -28,7 +29,7 @@ WEB_GROUP="www-data"
 LOG_FILE="/var/log/znuny-setup-$(date +%Y%m%d_%H%M%S).log"
 CREDENTIALS_FILE="/root/znuny-credentials.txt"
 
-# Global variables for credentials
+# Global variables for credentials - auto-generated
 DB_PASSWORD=""
 ADMIN_PASSWORD=""
 LOCAL_IP=""
@@ -156,32 +157,15 @@ install_postgresql() {
 setup_postgresql_db() {
     log_message INFO "Setting up PostgreSQL database..."
     
-    # Check if running interactively
-    if [ -t 0 ]; then
-        # Prompt for database credentials
-        echo -e "\n${BLUE}Database Setup${NC}"
-        read -p "Enter database username (default: znuny): " input_db_user
-        DB_USER=${input_db_user:-znuny}
-        
-        read -p "Enter database password (leave blank to auto-generate): " input_db_pass
-        if [[ -z "$input_db_pass" ]]; then
-            DB_PASSWORD=$(generate_password)
-            echo -e "${GREEN}Generated password: ${DB_PASSWORD}${NC}"
-        else
-            DB_PASSWORD="$input_db_pass"
-        fi
-    else
-        # Non-interactive mode: use defaults or generate password
-        DB_USER="znuny"
-        DB_PASSWORD=$(generate_password)
-        if [[ -z "$DB_PASSWORD" ]]; then
-            log_message ERROR "Failed to generate database password"
-            exit 1
-        fi
-        echo -e "${BLUE}Database Setup (non-interactive)${NC}"
-        echo "Using database user: ${DB_USER}"
-        echo "Generated database password: ${DB_PASSWORD}"
+    # Auto-generate database password
+    DB_PASSWORD=$(generate_password)
+    if [[ -z "$DB_PASSWORD" ]]; then
+        log_message ERROR "Failed to generate database password"
+        exit 1
     fi
+    
+    log_message INFO "Generated database credentials"
+    log_message INFO "Database user: ${DB_USER}"
     
     # Create database and user
     log_message INFO "Creating database user: ${DB_USER}"
@@ -297,11 +281,10 @@ install_perl_modules() {
         libwww-perl \
         libxml-libxml-perl \
         libxml-parser-perl \
-        libjson-xs-perl \
         libtemplate-perl \
-        libtimedate-perl \
-        libarchive-zip-perl \
-        libdata-uuid-perl \
+        libjson-xs-perl \
+        libmail-imapclient-perl \
+        libtext-csv-perl \
         libdatetime-perl \
         libmoo-perl \
         libnet-dns-perl \
@@ -321,32 +304,24 @@ install_perl_modules() {
     
     log_message INFO "Core Perl modules installed successfully"
     
-    # Optional modules for extended functionality (mail, LDAP, PDF, etc.)
-    log_message INFO "Installing optional Perl modules..."
-    apt-get install -y \
-        libmail-imapclient-perl \
-        libnet-ldap-perl \
-        libpdf-api2-perl \
-        libgd-text-perl \
-        libgd-graph-perl \
-        libexcel-writer-xlsx-perl \
-        libauthen-sasl-perl \
-        libauthen-ntlm-perl || {
-        log_message WARN "Some optional modules failed to install, but installation will continue"
+    # Install additional Perl modules via CPAN if needed
+    cpan -i Encode::HanExtra Archive::Tar Archive::Zip || {
+        log_message WARN "Some optional CPAN modules failed to install"
     }
-    
-    log_message INFO "Perl modules installation completed"
 }
 
 # Function to download and install Znuny
 install_znuny() {
-    log_message INFO "Downloading and installing Znuny ${ZNUNY_VERSION}..."
+    log_message INFO "Installing Znuny ${ZNUNY_VERSION}..."
     
-    cd "$INSTALL_DIR"
+    cd "${INSTALL_DIR}"
     
-    # Download Znuny
+    # Download Znuny if not already present
     if [[ ! -f "znuny-${ZNUNY_VERSION}.tar.gz" ]]; then
         log_message INFO "Downloading Znuny ${ZNUNY_VERSION}..."
+        
+        # Show download progress
+        echo -e "${BLUE}Downloading from: ${ZNUNY_DOWNLOAD_URL}${NC}"
         
         # Try download with retry logic
         local retry_count=0
@@ -419,35 +394,12 @@ create_znuny_user() {
 configure_znuny() {
     log_message INFO "Configuring Znuny..."
     
-    # Copy default configuration
+    # Generate admin password
+    ADMIN_PASSWORD=$(generate_password)
+    
     cd /opt/otrs
-    if [[ -f Kernel/Config.pm.dist ]]; then
-        cp Kernel/Config.pm.dist Kernel/Config.pm
-    fi
     
-    # Set admin password
-    if [ -t 0 ]; then
-        # Interactive mode: prompt for password
-        echo -e "\n${BLUE}Admin Account Setup${NC}"
-        read -p "Enter admin password (leave blank to auto-generate): " input_admin_pass
-        if [[ -z "$input_admin_pass" ]]; then
-            ADMIN_PASSWORD=$(generate_password)
-            echo -e "${GREEN}Generated admin password: ${ADMIN_PASSWORD}${NC}"
-        else
-            ADMIN_PASSWORD="$input_admin_pass"
-        fi
-    else
-        # Non-interactive mode: generate password
-        ADMIN_PASSWORD=$(generate_password)
-        echo -e "${BLUE}Admin Account Setup (non-interactive)${NC}"
-        echo "Generated admin password: ${ADMIN_PASSWORD}"
-    fi
-    
-    # Export variables for use in other functions
-    export DB_PASSWORD
-    export ADMIN_PASSWORD
-    
-    # Create configuration with database settings
+    # Create Config.pm with database configuration
     cat > Kernel/Config.pm <<EOF
 # --
 # Copyright (C) 2001-2021 OTRS AG, https://otrs.com/
@@ -456,6 +408,14 @@ configure_znuny() {
 # This software comes with ABSOLUTELY NO WARRANTY. For details, see
 # the enclosed file COPYING for license information (GPL). If you
 # did not receive this file, see https://www.gnu.org/licenses/gpl-3.0.txt.
+# --
+#  Note:
+#  -->> Most OTRS configuration should be done via the OTRS web interface
+#       and the SysConfig. Only for some configuration, such as database
+#       credentials and customer data source changes, you should edit this
+#       file. For changes do customer data sources you can copy the definitions
+#       from Kernel/Config/Defaults.pm and paste them in this file.
+#       Config.pm will not be overwritten when updating OTRS.
 # --
 
 package Kernel::Config;
@@ -468,7 +428,7 @@ sub Load {
     my \$Self = shift;
 
     # ---------------------------------------------------- #
-    # database settings                                    #
+    # database settings                                   #
     # ---------------------------------------------------- #
 
     # The database host
@@ -480,7 +440,7 @@ sub Load {
     # The database user
     \$Self->{DatabaseUser} = '${DB_USER}';
 
-    # The password of database user
+    # The password of database user.
     \$Self->{DatabasePw} = '${DB_PASSWORD}';
 
     # The database DSN
@@ -492,35 +452,37 @@ sub Load {
     \$Self->{Home} = '/opt/otrs';
 
     # ---------------------------------------------------- #
-    # insert your own config settings "here"               #
+    # insert your own config settings "here"              #
     # config settings taken from Kernel/Config/Defaults.pm #
     # ---------------------------------------------------- #
     
-    # SecureMode - disabled for initial setup via web installer
-    # IMPORTANT: Set this to 1 after completing web installation for security
-    \$Self->{SecureMode} = 0;
+    # SecureMode
+    \$Self->{SecureMode} = 1;
     
-    # System FQDN
+    # SystemID
+    \$Self->{SystemID} = 10;
+    
+    # FQDN
     \$Self->{FQDN} = '${HOSTNAME}';
     
-    # Default language
-    \$Self->{DefaultLanguage} = 'en';
+    # AdminEmail
+    \$Self->{AdminEmail} = 'admin@${HOSTNAME}';
     
-    # Set ProductName
-    \$Self->{ProductName} = 'Znuny';
+    # Organization
+    \$Self->{Organization} = 'Znuny Test';
 
     # ---------------------------------------------------- #
 
     # ---------------------------------------------------- #
-    # data inserted by installer                           #
+    # data inserted by installer                          #
     # ---------------------------------------------------- #
     # \$DIBI\$
 
     # ---------------------------------------------------- #
     # ---------------------------------------------------- #
-    #                                                      #
+    #                                                     #
     # end of your own config options!!!                   #
-    #                                                      #
+    #                                                     #
     # ---------------------------------------------------- #
     # ---------------------------------------------------- #
 
@@ -528,10 +490,10 @@ sub Load {
 }
 
 # ---------------------------------------------------- #
-# needed system stuff (don't edit this)                #
+# needed system stuff (don't edit this)               #
 # ---------------------------------------------------- #
 
-use Kernel::Config::Defaults; # import Translatable()
+use Kernel::Config::Defaults;
 use parent qw(Kernel::Config::Defaults);
 
 # -----------------------------------------------------#
@@ -539,23 +501,23 @@ use parent qw(Kernel::Config::Defaults);
 1;
 EOF
 
-    # Set permissions on Config.pm
+    # Set proper permissions on Config.pm
+    chmod 660 Kernel/Config.pm
     chown ${ZNUNY_USER}:${WEB_GROUP} Kernel/Config.pm
-    chmod 640 Kernel/Config.pm
     
-    log_message INFO "Znuny configuration created"
+    log_message INFO "Znuny configuration file created"
 }
 
-# Function to set file permissions
+# Function to set permissions
 set_permissions() {
     log_message INFO "Setting file permissions..."
     
     cd /opt/otrs
     
-    # Use Znuny's SetPermissions script
+    # Use Znuny's own permission script if available
     if [[ -x bin/otrs.SetPermissions.pl ]]; then
-        bin/otrs.SetPermissions.pl --otrs-user=${ZNUNY_USER} --web-group=${WEB_GROUP} || {
-            log_message WARN "SetPermissions script failed, applying manual permissions"
+        bin/otrs.SetPermissions.pl --znuny-user=${ZNUNY_USER} --web-group=${WEB_GROUP} || {
+            log_message WARN "SetPermissions.pl reported issues, applying manual permissions"
             chown -R ${ZNUNY_USER}:${WEB_GROUP} /opt/otrs
             chmod -R 755 /opt/otrs
             find var/ -type d -exec chmod 770 {} \;
@@ -612,74 +574,71 @@ configure_apache() {
     log_message INFO "Apache configured successfully"
 }
 
-# Function to initialize database
+# Function to initialize database and create admin user
 initialize_database() {
     log_message INFO "Initializing Znuny database..."
     
     cd /opt/otrs
     
-    # Create initial database schema
-    if [[ -f bin/otrs.Console.pl ]]; then
-        # First, check database connectivity
-        log_message INFO "Testing database connectivity..."
-        if ! PGPASSWORD="${DB_PASSWORD}" psql -h ${DB_HOST} -U ${DB_USER} -d ${DB_NAME} -c "SELECT 1;" &>/dev/null; then
-            log_message ERROR "Cannot connect to database. Please check credentials and PostgreSQL configuration"
-            exit 1
-        fi
-        
-        # Create necessary directories before database initialization
-        log_message INFO "Creating required directories..."
-        mkdir -p /opt/otrs/var/tmp
-        mkdir -p /opt/otrs/var/log
-        mkdir -p /opt/otrs/var/sessions
-        mkdir -p /opt/otrs/var/article
-        chown -R ${ZNUNY_USER}:${WEB_GROUP} /opt/otrs/var
-        chmod -R 770 /opt/otrs/var
-        
-        log_message INFO "Database connection successful!"
-        log_message INFO "Database schema will be initialized via web installer"
-        
-        # Note: In Znuny 6.5, database initialization is done through the web installer
-        # at http://server/otrs/installer.pl
-    else
-        log_message ERROR "otrs.Console.pl not found"
-        exit 1
-    fi
+    # Create necessary directories before database initialization
+    log_message INFO "Creating required directories..."
+    mkdir -p /opt/otrs/var/tmp
+    mkdir -p /opt/otrs/var/log
+    mkdir -p /opt/otrs/var/sessions
+    mkdir -p /opt/otrs/var/article
+    chown -R ${ZNUNY_USER}:${WEB_GROUP} /opt/otrs/var
+    chmod -R 770 /opt/otrs/var
     
-    log_message INFO "Database initialized successfully"
+    # Initialize database schema
+    log_message INFO "Creating database schema..."
+    su - ${ZNUNY_USER} -c "cd /opt/otrs && bin/otrs.Console.pl Maint::Database::Init --type postgresql" || {
+        log_message ERROR "Failed to initialize database"
+        exit 1
+    }
+    
+    # Deploy database content
+    log_message INFO "Deploying database content..."
+    su - ${ZNUNY_USER} -c "cd /opt/otrs && bin/otrs.Console.pl Maint::Database::Deploy" || {
+        log_message ERROR "Failed to deploy database content"
+        exit 1
+    }
+    
+    # Create admin user
+    log_message INFO "Creating admin user..."
+    su - ${ZNUNY_USER} -c "cd /opt/otrs && bin/otrs.Console.pl Admin::User::Add --user-name root@localhost --first-name Admin --last-name User --email-address root@localhost --password '${ADMIN_PASSWORD}' --group admin --group users" || {
+        log_message ERROR "Failed to create admin user"
+        exit 1
+    }
+    
+    # Set initial system configuration
+    log_message INFO "Setting initial system configuration..."
+    su - ${ZNUNY_USER} -c "cd /opt/otrs && bin/otrs.Console.pl Maint::Config::Rebuild" || {
+        log_message WARN "Config rebuild reported issues"
+    }
+    
+    # Rebuild ticket counter
+    su - ${ZNUNY_USER} -c "cd /opt/otrs && bin/otrs.Console.pl Maint::Ticket::UnlockTicketByAge" || true
+    
+    log_message INFO "Database initialized and admin user created successfully"
 }
 
 # Function to setup cron jobs
 setup_cron() {
-    log_message INFO "Setting up cron jobs..."
+    log_message INFO "Setting up Znuny cron jobs..."
     
-    if [[ -d /opt/otrs/var/cron ]]; then
-        cd /opt/otrs/var/cron
-        
-        # Copy example cron files
-        for cronfile in *.dist; do
-            if [[ -f "$cronfile" ]]; then
-                cp "$cronfile" "${cronfile%.dist}"
-            fi
-        done
-    else
-        log_message WARN "Cron directory not found, skipping cron setup"
-        return
-    fi
+    cd /opt/otrs/var/cron
     
-    # Set permissions on cron files
-    chown ${ZNUNY_USER}:${WEB_GROUP} *.dist 2>/dev/null || true
+    # Activate all cron jobs
+    for cronfile in *.dist; do
+        cp "$cronfile" "${cronfile%.dist}"
+    done
     
-    # Install cron jobs
-    if [[ -x /opt/otrs/bin/Cron.sh ]]; then
-        su - ${ZNUNY_USER} -c "/opt/otrs/bin/Cron.sh start" || {
-            log_message WARN "Failed to start cron jobs"
-        }
-    else
-        log_message WARN "Cron.sh not found"
-    fi
+    # Install cron jobs for znuny user
+    su - ${ZNUNY_USER} -c "/opt/otrs/bin/Cron.sh start" || {
+        log_message WARN "Some cron jobs may have failed to install"
+    }
     
-    log_message INFO "Cron jobs configured successfully"
+    log_message INFO "Cron jobs configured"
 }
 
 # Function to create systemd service
@@ -713,14 +672,16 @@ EOF
     systemctl daemon-reload
     
     # Enable and start the service
-    systemctl enable znuny.service || {
-        log_message WARN "Failed to enable Znuny service"
+    systemctl enable znuny.service
+    
+    # Start the Znuny daemon
+    log_message INFO "Starting Znuny daemon..."
+    systemctl start znuny.service || {
+        log_message WARN "Znuny daemon start reported issues, trying direct start"
+        su - ${ZNUNY_USER} -c "/opt/otrs/bin/otrs.Daemon.pl start" || true
     }
     
-    # Note: Daemon will be started after web installer completes
-    log_message INFO "Znuny daemon will start after web installation is complete"
-    
-    log_message INFO "Znuny service configured for automatic startup"
+    log_message INFO "Znuny service configured and started"
 }
 
 # Function to verify services
@@ -746,10 +707,12 @@ verify_services() {
     fi
     
     # Check Znuny daemon
-    if [[ -f /opt/otrs/var/run/otrs.Daemon.pl.pid ]] && kill -0 $(cat /opt/otrs/var/run/otrs.Daemon.pl.pid) 2>/dev/null; then
+    if systemctl is-active --quiet znuny; then
         log_message INFO "Znuny daemon is running ✓"
+    elif [[ -f /opt/otrs/var/run/otrs.Daemon.pl.pid ]] && kill -0 $(cat /opt/otrs/var/run/otrs.Daemon.pl.pid) 2>/dev/null; then
+        log_message INFO "Znuny daemon is running (manual) ✓"
     else
-        log_message WARN "Znuny daemon is not running (this is normal for initial setup)"
+        log_message WARN "Znuny daemon may not be running"
     fi
     
     # Test web interface
@@ -798,66 +761,55 @@ save_credentials() {
     
     # Get system hostname and IP
     HOSTNAME=$(hostname -f 2>/dev/null || hostname)
-    # Get primary IP address (not localhost)
-    LOCAL_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || hostname -I | awk '{print $1}')
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
     
-    # Export for use in other functions
-    export HOSTNAME
-    export LOCAL_IP
-    
-    # Create credentials file
+    # Save credentials to file
     cat > "$CREDENTIALS_FILE" <<EOF
 ========================================
 Znuny 6.5 Installation Credentials
-========================================
 Generated: $(date)
-Server: ${HOSTNAME}
+========================================
 
-PostgreSQL Database:
+DATABASE INFORMATION:
 --------------------
-  Host:     ${DB_HOST}
-  Port:     ${DB_PORT}
-  Database: ${DB_NAME}
-  User:     ${DB_USER}
-  Password: ${DB_PASSWORD}
+Database Type: PostgreSQL
+Database Host: ${DB_HOST}
+Database Port: ${DB_PORT}
+Database Name: ${DB_NAME}
+Database User: ${DB_USER}
+Database Password: ${DB_PASSWORD}
 
-Znuny Web Interface:
+WEB INTERFACE ACCESS:
 --------------------
-  URL (Hostname):  http://${HOSTNAME}/otrs/index.pl
-  URL (IP):        http://${LOCAL_IP}/otrs/index.pl
-  Admin User:      root@localhost
-  Admin Password:  ${ADMIN_PASSWORD}
+URL (Hostname): http://${HOSTNAME}/otrs/index.pl
+URL (IP): http://${LOCAL_IP}/otrs/index.pl
 
-System Information:
--------------------
-  Znuny Version: ${ZNUNY_VERSION}
-  Install Path:  /opt/otrs
-  System User:   ${ZNUNY_USER} (service account, no password)
-  Web Group:     ${WEB_GROUP}
-  Config File:   /opt/otrs/Kernel/Config.pm
-  Log File:      ${LOG_FILE}
-
-Next Steps:
+ADMIN LOGIN:
 -----------
-1. Access the web interface at one of the URLs above
-2. Log in with the admin credentials
-3. Complete the web-based configuration wizard
-4. Configure email settings
-5. Create agents and customer users
-6. Set up queues and tickets
+Username: root@localhost
+Password: ${ADMIN_PASSWORD}
 
-Security Notes:
----------------
-- Change the admin password after first login
-- Secure this credentials file or delete after saving
-- Review and harden Apache configuration
-- Configure firewall rules as needed
-- Enable SSL/TLS for production use
+FILE LOCATIONS:
+--------------
+Znuny Root: /opt/otrs
+Config File: /opt/otrs/Kernel/Config.pm
+Log Directory: /opt/otrs/var/log/
 
-Support:
---------
-- Documentation: https://doc.znuny.org/
-- Community:     https://community.znuny.org/
+SERVICE MANAGEMENT:
+------------------
+Start Znuny: systemctl start znuny
+Stop Znuny: systemctl stop znuny
+Restart Znuny: systemctl restart znuny
+Check Status: systemctl status znuny
+
+IMPORTANT SECURITY NOTES:
+------------------------
+1. These are the initial credentials generated during installation
+2. Change the admin password after first login
+3. Secure or delete this file once you've saved the credentials
+4. Configure firewall rules to restrict access
+5. Enable SSL/TLS for production use
+
 ========================================
 EOF
 
@@ -877,49 +829,26 @@ display_summary() {
     echo -e "  - Via hostname: http://${HOSTNAME}/otrs/index.pl"
     echo -e "  - Via IP:       http://${LOCAL_IP}/otrs/index.pl"
     echo -e "${YELLOW}Admin Login:${NC} root@localhost"
-    echo -e "${YELLOW}Admin Password:${NC} [See ${CREDENTIALS_FILE}]"
+    echo -e "${YELLOW}Admin Password:${NC} ${ADMIN_PASSWORD}"
+    echo
+    echo -e "${BLUE}Database Credentials:${NC}"
+    echo -e "  - Database: ${DB_NAME}"
+    echo -e "  - Username: ${DB_USER}"
+    echo -e "  - Password: ${DB_PASSWORD}"
     echo
     echo -e "${BLUE}Important Files:${NC}"
     echo -e "  - Credentials: ${CREDENTIALS_FILE}"
     echo -e "  - Install Log: ${LOG_FILE}"
     echo -e "  - Config File: /opt/otrs/Kernel/Config.pm"
     echo
-    echo -e "${YELLOW}Next Steps:${NC}"
-    echo -e "  1. Access the web interface"
-    echo -e "  2. Log in with admin credentials"
-    echo -e "  3. Complete initial configuration"
-    echo -e "  4. ${RED}IMPORTANT:${NC} Save credentials and secure the file!"
-    echo
     echo -e "${GREEN}Services Status:${NC}"
     systemctl is-active --quiet postgresql && echo -e "  - PostgreSQL: ${GREEN}Running${NC}" || echo -e "  - PostgreSQL: ${RED}Not running${NC}"
     systemctl is-active --quiet apache2 && echo -e "  - Apache:     ${GREEN}Running${NC}" || echo -e "  - Apache:     ${RED}Not running${NC}"
-    systemctl is-enabled --quiet znuny && echo -e "  - Znuny:      ${GREEN}Enabled (auto-start)${NC}" || echo -e "  - Znuny:      ${YELLOW}Not enabled${NC}"
+    systemctl is-active --quiet znuny && echo -e "  - Znuny:      ${GREEN}Running${NC}" || echo -e "  - Znuny:      ${YELLOW}Check manually${NC}"
     echo
-    echo -e "${GREEN}Installation completed successfully!${NC}"
-    echo -e "${YELLOW}Znuny will start automatically on system boot.${NC}"
+    echo -e "${GREEN}Znuny is ready to use!${NC}"
+    echo -e "${YELLOW}Access the web interface and login with the admin credentials.${NC}"
     echo
-    
-    # Always display credentials at the end
-    echo
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}INSTALLATION COMPLETE - CREDENTIALS${NC}"
-    echo -e "${GREEN}========================================${NC}"
-    echo
-    echo -e "${BLUE}Database Credentials:${NC}"
-    echo -e "  Username: ${YELLOW}${DB_USER}${NC}"
-    echo -e "  Password: ${YELLOW}${DB_PASSWORD}${NC}"
-    echo
-    echo -e "${BLUE}Web Installer:${NC}"
-    echo -e "  URL:      ${YELLOW}http://${LOCAL_IP}/otrs/installer.pl${NC}"
-    echo
-    echo -e "${BLUE}After installation, access Znuny at:${NC}"
-    echo -e "  URL:      ${YELLOW}http://${LOCAL_IP}/otrs/index.pl${NC}"
-    echo
-    echo -e "${GREEN}========================================${NC}"
-    echo
-    echo -e "Full details saved to: ${YELLOW}${CREDENTIALS_FILE}${NC}"
-    
-    # Remind about security
     echo -e "${RED}SECURITY REMINDER:${NC}"
     echo "1. Save the credentials from ${CREDENTIALS_FILE}"
     echo "2. Change the admin password after first login"
@@ -968,7 +897,8 @@ uninstall_znuny() {
     # Remove Znuny files
     log_message INFO "Removing Znuny files..."
     rm -rf /opt/otrs
-    rm -f /opt/znuny-6.5
+    rm -rf /opt/znuny-${ZNUNY_VERSION}
+    rm -f /opt/znuny-${ZNUNY_VERSION}.tar.gz
     
     # Remove user
     log_message INFO "Removing znuny user..."
@@ -988,7 +918,7 @@ uninstall_znuny() {
 # Main installation function
 main() {
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  Znuny 6.5 Installation Script         ${NC}"
+    echo -e "${BLUE}  Znuny 6.5 Automated Installation      ${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo
     
@@ -999,9 +929,9 @@ main() {
     touch "$LOG_FILE"
     chmod 600 "$LOG_FILE"
     
-    log_message INFO "Starting Znuny installation..."
+    log_message INFO "Starting Znuny automated installation..."
     log_message INFO "Log file: $LOG_FILE"
-    log_message INFO "Script version: 1.0"
+    log_message INFO "Script version: 2.0 (Fully Automated)"
     log_message INFO "Target Znuny version: ${ZNUNY_VERSION}"
     
     # Run installation steps
@@ -1010,26 +940,20 @@ main() {
     check_prerequisites
     
     echo
-    echo -e "${YELLOW}This script will install:${NC}"
+    echo -e "${YELLOW}This script will automatically install:${NC}"
     echo "  - PostgreSQL database server"
     echo "  - Apache web server with mod_perl2"
     echo "  - Znuny ${ZNUNY_VERSION}"
     echo "  - All required Perl modules"
     echo "  - System dependencies"
     echo
+    echo -e "${GREEN}The installation will be fully automated.${NC}"
+    echo -e "${GREEN}No manual configuration required!${NC}"
+    echo
     
-    # Check if running interactively (not piped)
-    if [ -t 0 ]; then
-        read -p "Continue with installation? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_message INFO "Installation cancelled by user"
-            exit 0
-        fi
-    else
-        echo -e "${YELLOW}Running in non-interactive mode, proceeding with installation...${NC}"
-        sleep 2
-    fi
+    # Short pause before starting
+    echo -e "${YELLOW}Starting installation in 3 seconds...${NC}"
+    sleep 3
     
     # Execute installation
     install_system_dependencies
@@ -1071,42 +995,9 @@ cleanup() {
         log_message ERROR "Installation failed with exit code $exit_code"
         log_message ERROR "Check log file for details: $LOG_FILE"
         
-        # Offer to rollback
         echo
-        
-        # Check if running interactively
-        if [ -t 0 ]; then
-            echo -e "${YELLOW}Installation failed. Would you like to:${NC}"
-            echo "  1) Keep partial installation"
-            echo "  2) Remove Znuny files (keep PostgreSQL)"
-            echo "  3) Remove everything (Znuny + PostgreSQL)"
-            read -p "Select option (1-3) [1]: " -n 1 -r rollback_option
-            echo
-        else
-            echo -e "${YELLOW}Installation failed in non-interactive mode. Keeping partial installation.${NC}"
-            rollback_option="1"
-        fi
-        
-        case $rollback_option in
-            2)
-                log_message INFO "Removing Znuny files..."
-                rm -rf /opt/znuny-${ZNUNY_VERSION}
-                rm -f /opt/otrs
-                rm -f /opt/znuny-${ZNUNY_VERSION}.tar.gz
-                userdel ${ZNUNY_USER} 2>/dev/null || true
-                ;;
-            3)
-                log_message INFO "Removing Znuny and PostgreSQL..."
-                rm -rf /opt/znuny-${ZNUNY_VERSION}
-                rm -f /opt/otrs
-                rm -f /opt/znuny-${ZNUNY_VERSION}.tar.gz
-                userdel ${ZNUNY_USER} 2>/dev/null || true
-                su - postgres -c "dropdb ${DB_NAME} 2>/dev/null" || true
-                su - postgres -c "dropuser ${DB_USER} 2>/dev/null" || true
-                a2disconf znuny 2>/dev/null || true
-                rm -f /etc/apache2/conf-available/znuny.conf
-                ;;
-        esac
+        echo -e "${RED}Installation failed!${NC}"
+        echo -e "Check the log file for details: ${LOG_FILE}"
     fi
 }
 
@@ -1120,5 +1011,5 @@ if [[ "${1:-}" == "uninstall" ]]; then
     uninstall_znuny
 else
     # Run main installation function
-    main "$@"
+    main
 fi
